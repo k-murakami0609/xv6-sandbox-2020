@@ -69,9 +69,11 @@ void usertrap(void) {
   // give up the CPU if this is a timer interrupt.
   if (which_dev == 2) {
     p->ticks++;
-    if (p->ticks == p->interval) {
+    if (p->interval != 0 && p->ticks >= p->interval && p->processing == 0) {
+      memmove(p->prev_trapfram, p->trapframe, sizeof(struct proc));
       p->trapframe->epc = (uint64)p->handler;
       p->ticks = 0;
+      p->processing = 1;
     }
     yield();
   }
