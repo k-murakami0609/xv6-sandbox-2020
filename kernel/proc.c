@@ -271,6 +271,8 @@ int fork(void) {
 
   np->state = RUNNABLE;
 
+  np->traceid = p->traceid;
+
   release(&np->lock);
 
   return pid;
