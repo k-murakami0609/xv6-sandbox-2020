@@ -62,6 +62,11 @@ void usertrap(void) {
     if (va >= p->sz) {
       exit(-1);
     }
+
+    if (va <= PGROUNDDOWN(p->trapframe->sp)) {
+      exit(-1);
+    }
+
     char *mem = kalloc();
     if (mem == 0) {
       exit(-1);
