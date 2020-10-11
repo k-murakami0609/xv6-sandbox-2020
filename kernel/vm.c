@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -82,6 +84,41 @@ pte_t *walk(pagetable_t pagetable, uint64 va, int alloc) {
   return &pagetable[PX(0, va)];
 }
 
+pte_t *walk_with_mappings(pagetable_t pagetable, uint64 va) {
+  if (va >= MAXVA)
+    panic("walk");
+
+  int found = 1;
+  for (int level = 2; level > 0; level--) {
+    pte_t *pte = &pagetable[PX(level, va)];
+    if (*pte & PTE_V) {
+      pagetable = (pagetable_t)PTE2PA(*pte);
+    } else {
+      found = 0;
+      break;
+    }
+  }
+
+  pte_t *pte = &pagetable[PX(0, va)];
+  if (found == 0 || (*pte & PTE_V) == 0) {
+    struct proc *p = myproc();
+    if (va >= p->sz || va < PGROUNDUP(p->trapframe->sp))
+      return 0;
+    char *mem = kalloc();
+    if (mem == 0) {
+      return 0;
+    }
+    if (mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem,
+                 PTE_W | PTE_X | PTE_R | PTE_U) != 0) {
+      kfree(mem);
+      return 0;
+    }
+    return walk(p->pagetable, va, 0);
+  } else {
+    return pte;
+  }
+}
+
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
@@ -92,7 +129,8 @@ uint64 walkaddr(pagetable_t pagetable, uint64 va) {
   if (va >= MAXVA)
     return 0;
 
-  pte = walk(pagetable, va, 0);
+  pte = walk_with_mappings(pagetable, va);
+
   if (pte == 0)
     return 0;
   if ((*pte & PTE_V) == 0)
