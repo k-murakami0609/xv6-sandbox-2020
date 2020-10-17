@@ -14,6 +14,9 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+// TODO: fix size
+int reference[1000000];
+
 struct run {
   struct run *next;
 };
@@ -23,16 +26,30 @@ struct {
   struct run *freelist;
 } kmem;
 
+void increment_reference(uint64 pa) {
+  uint64 reference_index = pa / PGSIZE;
+  reference[reference_index] += 1;
+}
+
+void decerement_reference(uint64 pa) {
+  uint64 reference_index = pa / PGSIZE;
+  reference[reference_index] -= 1;
+}
+
 void kinit() {
   initlock(&kmem.lock, "kmem");
   freerange(end, (void *)PHYSTOP);
+  for (int i = 0; i < 1000000; i++) {
+    reference[i] = 0;
+  }
 }
 
 void freerange(void *pa_start, void *pa_end) {
   char *p;
   p = (char *)PGROUNDUP((uint64)pa_start);
-  for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE)
+  for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE) {
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -44,6 +61,16 @@ void kfree(void *pa) {
 
   if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
+
+  int reference_index = (uint64)pa / PGSIZE;
+  if (reference[reference_index] < 0) {
+    panic("reference_index");
+  }
+
+  decerement_reference((uint64)pa);
+  if (reference[reference_index] > 0) {
+    return;
+  }
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -68,7 +95,9 @@ void *kalloc(void) {
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if (r)
+  if (r) {
     memset((char *)r, 5, PGSIZE); // fill with junk
+    increment_reference((uint64)r);
+  }
   return (void *)r;
 }
